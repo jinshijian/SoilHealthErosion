@@ -1,0 +1,202 @@
+---
+title: "ErosionSI"
+author: "Jinshi"
+date: "August 25, 2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+```{r}
+SLR_erosion <- function () {
+  # test question 1: whether Ts is good surrogate for Ta?
+  sdata <- SoilHealthDB
+  colnames(sdata)[which(colnames(sdata) == 'OC_C')] <- "SOC_C"
+  colnames(sdata)[which(colnames(sdata) == 'OC_T')] <- "SOC_T"
+  par( mar=c(2, 0.2, 0.2, 0.2)
+       , mai=c(0.6, 0.7, 0.0, 0.1)  # by inches, inner margin
+       , omi = c(0.0, 0.1, 0.4, 0.1)  # by inches, outer margin
+       , mgp = c(0.5, 0.5, 0) # set distance of axis
+       , tcl = 0.4
+       , cex.axis = 1.0
+       # , las = 1
+       , mfrow=c(1,1) )
+  
+  erocol <- 154 #which(colnames(SoilHealthDB) == 'Erosion_C')
+  runoffcol <- 159 #which(colnames(SoilHealthDB) == 'Runoff_C')
+  respcol <- c(64, 69, 74, 79, 94, 99, 104, 109, 114, 119, 124, 129, 134, 139
+               ,144, 149, 154, 159, 164, 169, 174, 179, 184, 189, 194
+               ,199, 204, 209, 214, 219, 224, 229, 234, 239, 244, 249, 254, 259)
+    # c(seq(which(colnames(SoilHealthDB) == 'BiomassCash_C'),which(colnames(SoilHealthDB) == 'OC_C'),5)
+    #            ,seq(which(colnames(SoilHealthDB) == 'N_C'),which(colnames(SoilHealthDB) == 'MBN_C'),5)) # all response columns
+  
+  erosion_results <- data.frame()
+  
+  for (i in 1: length(respcol)) {
+    subdata <- sdata[, c(1, 2, erocol, erocol + 1, runoffcol, runoffcol + 1, respcol[i], respcol[i]+1 )]
+    
+    indicator <- colnames(subdata)[7] 
+    indicator <- str_sub(indicator, 1, str_length(indicator)-2)
+    
+    colnames(subdata) <- c("StudyID", "ExperimentID",  "Erosion_C", "Erosion_T", "Runoff_C", "Runoff_T", "Y_C", "Y_T")
+    
+    subdata <- subdata %>% filter(!is.na(Erosion_C) & !is.na(Y_C))
+    # min(subdata$Erosion_C)
+    # min(subdata$Erosion_T)
+    subdata$Erosion_C <- ifelse(subdata$Erosion_C == 0, 0.001, subdata$Erosion_C)
+    subdata$Erosion_T <- ifelse(subdata$Erosion_T == 0, 0.001, subdata$Erosion_T)
+    
+    subdata$Y_C <- ifelse(subdata$Y_C == 0, 0.001, subdata$Y_C)
+    subdata$Y_T <- ifelse(subdata$Y_T == 0, 0.001, subdata$Y_T)
+    
+    n_total <- nrow(subdata)
+    n_study <- length(unique(subdata$StudyID))
+    
+    if (n_total > 5) {
+      subdata %>% mutate(y = log(Y_T)-log(Y_C), x = log(Erosion_T) - log(Erosion_C)) -> subdata
+      
+      
+      # plot
+      plot (subdata$y ~ subdata$x
+            , xlab = ""
+            , ylab = ""
+            , pch = c(19) 
+            , main = ""
+            , col = c("gray")
+            , data = subdata
+            , las = 1)
+      mtext(side = 1, text = "Erosion (RR)", line = 1.5, cex=1.25, outer = F)
+      mtext(side = 2, text = paste0(indicator, " (RR)"), line = 2.5, cex=1.25, outer = F)
+      
+      # SLR model
+      SLR <- lm(y ~ x, data = subdata)
+      erosion_a <- summary(SLR)$coefficients[1,1] %>% round(6)
+      erosion_b <- summary(SLR)$coefficients[2,1] %>% round(6)
+      p_erosion_b <- summary(SLR)$coefficients[2,4]%>% round(6)
+      erosion_R2 <- summary(SLR)$r.squared %>% round(6)
+      
+      # model_prems <- data.frame(indicator, n_total, n_study, erosion_a, erosion_b, p_erosion_b, erosion_R2)
+      # erosion_results <- rbind(erosion_results, model_prems)
+      
+      # add regression line
+      if(p_erosion_b<0.05) {curve(erosion_a + erosion_b * x, min(subdata$x), max(subdata$x), col = "black", lwd = 2, add = T)} else{next}
+    }
+  }
+}
+
+```
+
+```{r}
+SLR_erosion()
+```
+
+
+```{r}
+SLR_runoff <- function () {
+  # test question 1: whether Ts is good surrogate for Ta?
+  # pdf( 'outputs/SLR_runoff.pdf', width=4, height=3)
+  # colnames(SoilHealthDB)[which(colnames(SoilHealthDB) == 'OC_C')] <- "SOC_C"
+  # colnames(SoilHealthDB)[which(colnames(SoilHealthDB) == 'OC_T')] <- "SOC_T"
+  
+  SoilHealthDB <- SoilHealthDB
+  colnames(SoilHealthDB)[which(colnames(SoilHealthDB) == 'OC_C')] <- "SOC_C"
+  colnames(SoilHealthDB)[which(colnames(SoilHealthDB) == 'OC_T')] <- "SOC_T"
+  
+  par( mar=c(2, 0.2, 0.2, 0.2)
+       , mai=c(0.6, 0.7, 0.0, 0.1)  # by inches, inner margin
+       , omi = c(0.0, 0.1, 0.4, 0.1)  # by inches, outer margin
+       , mgp = c(0.5, 0.5, 0) # set distance of axis
+       , tcl = 0.4
+       , cex.axis = 1.0
+       # , las = 1
+       , mfrow=c(1,1) )
+  
+  erocol <- which(colnames(SoilHealthDB) == 'Erosion_C')
+  runoffcol <- which(colnames(SoilHealthDB) == 'Runoff_C')
+  respcol <- c(seq(which(colnames(SoilHealthDB) == 'BiomassCash_C'),which(colnames(SoilHealthDB) == 'SOC_C'),5)
+               ,seq(which(colnames(SoilHealthDB) == 'N_C'),which(colnames(SoilHealthDB) == 'MBN_C'),5)) # all response columns
+  
+  runoff_results <- data.frame()
+  
+  for (i in 1: length(respcol)) {
+    subdata <- SoilHealthDB[, c(which(colnames(SoilHealthDB) == 'StudyID'|colnames(SoilHealthDB) == 'ExperimentID')
+                                , erocol, erocol + 1, runoffcol, runoffcol + 1, respcol[i], respcol[i]+1 )]
+    
+    indicator <- colnames(subdata)[7] 
+    indicator <- str_sub(indicator, 1, str_length(indicator)-2)
+    
+    colnames(subdata) <- c("StudyID", "ExperimentID",  "Erosion_C", "Erosion_T", "Runoff_C", "Runoff_T", "Y_C", "Y_T")
+    
+    subdata <- subdata %>% filter(!is.na(Erosion_C) & !is.na(Y_C))
+    # min(subdata$Erosion_C)
+    # min(subdata$Erosion_T)
+    subdata$Erosion_C <- ifelse(subdata$Erosion_C == 0, 0.001, subdata$Erosion_C)
+    subdata$Erosion_T <- ifelse(subdata$Erosion_T == 0, 0.001, subdata$Erosion_T)
+    
+    subdata$Y_C <- ifelse(subdata$Y_C == 0, 0.001, subdata$Y_C)
+    subdata$Y_T <- ifelse(subdata$Y_T == 0, 0.001, subdata$Y_T)
+    
+    n_total <- nrow(subdata)
+    n_study <- length(unique(subdata$StudyID))
+    
+    subdata %>% mutate(y = log(Y_T)-log(Y_C), x = log(Erosion_T) - log(Erosion_C)) -> subdata
+    
+    if(n_total > 5) {
+      subdata <- SoilHealthDB[, c(which(colnames(SoilHealthDB) == 'StudyID'|colnames(SoilHealthDB) == 'ExperimentID')
+                                  , erocol, erocol + 1, runoffcol, runoffcol + 1, respcol[i], respcol[i]+1 )]
+      
+      indicator <- colnames(subdata)[7] 
+      indicator <- str_sub(indicator, 1, str_length(indicator)-2)
+      
+      colnames(subdata) <- c("StudyID", "ExperimentID",  "Erosion_C", "Erosion_T", "Runoff_C", "Runoff_T", "Y_C", "Y_T")
+      
+      subdata <- subdata %>% filter(!is.na(Runoff_C) & !is.na(Y_C))
+      min(subdata$Runoff_C)
+      min(subdata$Runoff_T)
+      subdata$Runoff_C <- ifelse(subdata$Runoff_C == 0, 0.001, subdata$Runoff_C)
+      subdata$Runoff_T <- ifelse(subdata$Runoff_T == 0, 0.001, subdata$Runoff_T)
+      
+      subdata$Y_C <- ifelse(subdata$Y_C == 0, 0.001, subdata$Y_C)
+      subdata$Y_T <- ifelse(subdata$Y_T == 0, 0.001, subdata$Y_T)
+      
+      n_total <- nrow(subdata)
+      n_study <- length(unique(subdata$StudyID))
+      
+      subdata %>% mutate(y = log(Y_T)-log(Y_C), x = log(Runoff_T) - log(Runoff_C)) -> subdata
+      
+      # plot
+      plot (subdata$y ~ subdata$x
+            , xlab = ""
+            , ylab = ""
+            , pch = c(19) 
+            , main = ""
+            , col = c("gray")
+            , data = subdata
+            , las = 1)
+      mtext(side = 1, text = "Runoff (RR)"
+            , line = 1.5, cex=1.25, outer = F)
+      mtext(side = 2, text = paste0(indicator, " (RR)"), line = 2.5, cex=1.25, outer = F)
+      
+      # SLR model
+      SLR <- lm(y ~ x, data = subdata)
+      runoff_a <- summary(SLR)$coefficients[1,1] %>% round(6)
+      runoff_b <- summary(SLR)$coefficients[2,1] %>% round(6)
+      p_runoff_b <- summary(SLR)$coefficients[2,4]%>% round(6)
+      runoff_R2 <- summary(SLR)$r.squared %>% round(6)
+      
+      # model_prems <- data.frame(indicator, n_total, n_study, runoff_a, runoff_b, p_runoff_b, runoff_R2)
+      # runoff_results <- rbind(runoff_results, model_prems)
+      
+      # add regression line
+      if(p_runoff_b<0.05) {curve(runoff_a + runoff_b * x, min(subdata$x), max(subdata$x), col = "black", lwd = 2, add = T)} else {next}
+    }
+  }
+}
+```
+
+
+```{r}
+SLR_runoff()
+```
+

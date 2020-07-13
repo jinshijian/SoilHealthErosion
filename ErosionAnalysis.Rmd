@@ -1,0 +1,762 @@
+---
+title: "ErosionAnalysis"
+author: "Jinshi"
+date: "May 21, 2019"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r, message=FALSE}
+library(cowplot)
+library(data.table)
+# library(plyr)
+library(dplyr)
+library(ggplot2)
+theme_set(theme_bw())
+library(lubridate)
+library(kableExtra)
+library(cowplot)
+library(knitr)
+library("ggpubr")
+# library(reshape)
+# install.packages("ggmap")
+library(ggmap)
+# install.packages("maps")
+library(maps)
+# install.packages("mapdata")
+library(mapdata)
+library(tidyr)
+# install.packages("car")
+library(car)
+# install.packages('agricolae')
+library(agricolae)
+# install.packages('multcompView')
+library(multcompView)
+# install.packages("bootstrap")
+library(bootstrap)
+# install.packages("metafor")
+library("metafor")
+# Source all needed functions
+# install.packages("e1071")
+library(e1071)
+library(stringr)
+# install.packages('ggmap')
+library(rgdal)
+library(raster)
+library(ggmap)
+source('functions.R')
+# getwd()
+```
+
+
+```{r preliminaries, message=FALSE, include=FALSE, echo=FALSE, cache=T}
+# Set chunks defaults; these options will be applied to all subsequent chunks
+knitr::opts_chunk$set(results = 'show', message = TRUE, include = TRUE, echo = FALSE,
+                      fig.height = 4, fig.width = 8)
+# Constants
+OUTPUT_DIR		<- "outputs/"
+SEPARATOR		<- "-------------------------------------------"
+DATA_DIR <- 'data'
+# Create output and log folders if they do not exist
+if(!file.exists(OUTPUT_DIR)) dir.create(OUTPUT_DIR)
+# install.packages('kableExtra')
+# Load required packages
+```
+
+
+```{r}
+# load data
+# SoilHealthDB_V2.csv can be found at: https://github.com/jinshijian/SoilHealthDB (commit number:e89beca)
+SoilHealthDB <- read.csv('../SoilHealthDB/data/SoilHealthDB_V2.csv', header = T)
+# SoilHealthDB <- read.csv('outputs/SoilHealthDB_water_depth.csv', header = T)
+
+# Add soiltexture_group information
+sort(unique(as.character(SoilHealthDB$Texture)))
+# coarse group
+SoilHealthDB %>% mutate(TextureGroup = case_when(Texture=="TU"|Texture=="TH"|Texture=="EH"|Texture=="Loamy sand"|Texture=="Sandy loam"|Texture=="Sand"|Texture=="Sandy" ~ "Coarse",
+                        Texture=="Sandy clay loam"|Texture=="Loam"|Texture=="Silt loam"|Texture=="Silt" ~ "Medium",
+                        Texture=="EHI"|Texture=="TA"|Texture=="Clay"|Texture=="Silty clay"|Texture=="Silty clay loam"|Texture=="Clay loam"|Texture=="Sandy clay" ~ "Fine",
+                        TRUE~"NotAvailable")) -> SoilHealthDB
+# test results
+SoilHealthDB %>% select (Texture, TextureGroup) %>% filter(TextureGroup == "NotAvailable") %>% distinct(Texture)
+unique(SoilHealthDB[which((SoilHealthDB$Texture=="")),]$TextureGroup)
+
+# SoilHealthDB <- SoilHealthDB[SoilHealthDB$Conservation_Type == "AFS",] 
+erosion_meta <- read.csv('outputs/erosion_meta.csv')
+# Subset
+sub_erosion <- filter(SoilHealthDB, !is.na(Erosion_C) & Erosion_C > 0 ) 
+# if Erosion_T = 0 then set as the min of Erosion_T/Erosion_C
+sub_erosion[sub_erosion$Erosion_T == 0,]$Erosion_T <- 
+  sub_erosion %>% filter (Erosion_T > 0) %>% transmute (ratio = Erosion_T / Erosion_C) %>% min * sub_erosion[sub_erosion$Erosion_T == 0,]$Erosion_C
+# sub_erosion %>% select(Erosion_C, Erosion_T)
+sub_erosion$yi <- log(sub_erosion$Erosion_T) - log(sub_erosion$Erosion_C)
+
+
+# class(SoilHealthDB$Runoff_T)
+# if Runoff_T = 0 then set as the min of Runoff_T/Runoff_C
+sub_runoff <- filter(SoilHealthDB, !is.na(Runoff_C) & Runoff_C > 0 ) 
+sub_runoff %>% select(Runoff_C) %>% order
+sub_runoff[sub_runoff$Runoff_T == 0,]$Runoff_T <- 
+  sub_runoff %>% filter (Runoff_T > 0) %>% transmute (ratio = Runoff_T / Runoff_C) %>% min * sub_runoff[sub_runoff$Runoff_T == 0,]$Runoff_C
+sub_runoff$yi <- log(sub_runoff$Runoff_T) - log(sub_runoff$Runoff_C)
+
+```
+
+
+```{r}
+ground_water <- raster('data/Global_Soil_Regolith_Sediment_1304/data/upland_hill-slope_regolith_thickness.tif')
+image(ground_water)
+```
+
+
+
+
+```{r}
+ground_water
+150/18000 # latitude resolution
+360/43200 # longitude resolution
+
+get_watDep <- function(sdata1, sdata2){
+  # i = 376
+  # sdata1 = sub_erosion
+  # sdata2 = ground_water
+  for (i in 1:nrow(sdata1)){
+    # target poit's latitude and longitude
+    target_lat <- sdata1$Latitude[i]
+    target_lon <- sdata1$Longitude[i]
+    # get row and column information in the raster data
+    ilat <- round((90 - target_lat)/150*18000, 0)
+    ilon <- round((target_lon + 180)/360*43200, 0) 
+    # get ground water depth information
+    target_depth <- sdata2[ilat, ilon]
+    
+    sdata1[i, "water_depth"] <- target_depth
+    
+    print(paste0("----------", i))
+  }
+  
+  # outputs <- sdata1[1,] %>% select(Latitude, Longitude, water_depth)
+  return (sdata1)
+}
+
+# round((90 - 90)/150*18000, 0)
+# round((180 + 180)/360*43200, 0)
+
+```
+
+
+
+```{r}
+# SoilHealthDB <- get_watDep(SoilHealthDB, ground_water)
+# write.csv(SoilHealthDB, "outputs/SoilHealthDB_water_depth.csv", row.names = FALSE)
+```
+
+```{r}
+# sub_leach <- get_watDep(sub_leach, ground_water)
+
+# sub_leach <- SoilHealthDB %>% dplyr::select(Latitude, Longitude, Leaching_C, Leaching_T) %>% 
+#   mutate(Leaching_RR = log( Leaching_T / Leaching_C)) %>% 
+#   na.omit()
+# 
+# sub_leach %>% filter(water_depth < 255) %>% 
+#   ggplot(aes(water_depth, Leaching_RR)) +
+#   geom_point() +
+#   geom_smooth(method = lm)
+# 
+# ggsave("outputs/Figure S1. Leaching_groud_water.png", width = 8, height = 4.5, dpi = 300, units = "in" )
+  
+```
+
+
+
+```{r}
+# plot_sites (SoilHealthDB)
+# aggregate for sub_erosion
+siteInfor_erosion <- sub_erosion %>% 
+  select(YearPublication, Latitude, Longitude) %>% 
+  group_by(Latitude, Longitude) %>% 
+  summarise(Obs = n())
+siteInfor_erosion <- siteInfor_erosion %>% 
+  na.omit() 
+
+sort(siteInfor_erosion$Obs)
+siteInfor_erosion$var_size <- mean(siteInfor_erosion$Obs)*0.225 + (siteInfor_erosion$Obs)*0.075
+sort(unique(siteInfor_erosion$var_size))
+siteInfor_erosion %>% 
+  mutate(Indicator = "Erosion") ->
+  siteInfor_erosion
+
+# aggregate for runoff
+siteInfor_runoff <- sub_runoff %>% select(YearPublication, Latitude, Longitude) %>% 
+  group_by(Latitude, Longitude) %>% summarise(Obs = n())
+siteInfor_runoff <- siteInfor_runoff %>% na.omit()
+siteInfor_runoff$var_size <- mean(siteInfor_runoff$Obs)*0.225 + (siteInfor_runoff$Obs)*0.075
+siteInfor_runoff %>% 
+  mutate(Indicator = "Runoff") -> 
+  siteInfor_runoff
+
+# put runoff and erosion data together
+bind_rows(
+  siteInfor_erosion,
+  siteInfor_runoff) ->
+  siteInfor_runero
+
+# create labels information
+# label_erosion <- paste0("Erosion (n=", nrow(siteInfor_erosion),")")
+# label_runoff <- paste0("Runoff (n=", nrow(siteInfor_runoff),")")
+label_erosion <- paste0("Erosion (n=", nrow(siteInfor_erosion),")")
+label_runoff <- paste0("Runoff (n=", nrow(siteInfor_runoff),")")
+
+
+# Step 2: Plot
+# global map
+counties <- map_data("world", region = ".", exact = FALSE)
+# sort(unique(counties$region))
+
+ggplot(data = counties) + 
+  geom_polygon(aes(x = long, y = lat, group = group),
+               color = "white", fill = 'gray') + 
+  guides(fill=FALSE) +
+  geom_point(data = siteInfor_runero,
+             aes(x=Longitude, y=Latitude,
+                 size = Obs,
+                 shape = Indicator,
+                 col = Indicator),
+             alpha = 0.75,
+             stroke = 1.5,
+             # shape=1, col="black", 
+             # size = siteInfor_runero$N,
+             ) +
+  scale_shape_manual(values=c(19, 2)) +
+  scale_x_continuous(name="Longitude", breaks=seq(-180,180, 60),labels = seq(-180,180, 60))+
+  scale_y_continuous(limits = c(-60, 90),name="Latitude", breaks=seq(-60,90,30),labels = seq(-60,90,30)) +
+  scale_size_continuous(name = "Obs (n)") 
+
+# ggsave("outputs/Figure 1. Sites distribution.png", width = 8, height = 4, dpi = 300, units = "in" )
+```
+
+
+```{r}
+# global map using gggmap
+bbox <- make_bbox(lon = c(-160, 150), lat = c(-50, 70))
+map <- get_map(location = bbox ,source = "google", maptype = "hybrid")
+ggmap(map, fullpage = TRUE)
+
+mmap <- get_map(location = c(11.33,44.49,11.36,44.50), source = "osm")
+ggmap(mmap)
+
+```
+
+
+```{r, fig.width=8, fig.height=6}
+#https://www.youtube.com/watch?v=X9DZwCF9oSY # normal test
+# http://www.sthda.com/english/wiki/normality-test-in-r
+# Figure 2 
+# test normal distribution
+set.seed(1234567)
+plot_normal2 (sub_erosion, sub_runoff)
+```
+
+
+## get statistic outpus of boostrapping
+
+```{r}
+sub_erosion %>% count(Conservation_Type) 
+sub_runoff %>% count(Conservation_Type) 
+sub_erosion %>% count(TextureGroup)
+sub_runoff %>% count(TextureGroup)
+```
+
+```{r}
+# Group conservation_Type
+unique(sub_erosion$Conservation_Type)
+unique(sub_runoff$Conservation_Type)
+```
+
+
+
+```{r}
+# Erosion
+# unique(sub_erosion$Conservation_Type)
+set.seed(1234567)
+n_rep <- 10000
+# n_sample <- 10 # set it equals to the original sample size
+
+boots_outputs <- boosting_erorun(sub_erosion, "Erosion", "All")
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_erosion, Conservation_Type == "AF"), "Erosion", "AF"))
+boots_outputs <- bind_rows(boots_outputs
+                           , boosting_erorun(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("CC", "CC-NT", "CC-NT-SR", "CC-RT")), "Erosion", "CC"))
+
+boots_outputs <- bind_rows(boots_outputs
+                           , boosting_erorun(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("NT", "NT-CC", "NT-CC-SR", "NT-IN", "NT-SR")), "Erosion", "NT"))
+
+boots_outputs <- bind_rows(boots_outputs
+                           , boosting_erorun(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD", "PF-RD", "RD", "RD-SR" )),
+                                             "Erosion", "RT"))
+
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_erosion, Conservation_Type == "SR"), "Erosion", "SR"))
+# soil texture group
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_erosion, TextureGroup == "Coarse"), "Erosion", "Coarse"))
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_erosion, TextureGroup == "Medium"), "Erosion", "Medium"))
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_erosion, TextureGroup == "Fine"), "Erosion", "Fine"))
+# boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_erosion, TextureGroup == "NotAvailable"), "Erosion", "NA"))
+
+
+# Runoff
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(sub_runoff, "Runoff", "All"))
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_runoff, Conservation_Type == "AF"), "Runoff", "AF"))
+boots_outputs <- bind_rows(boots_outputs
+                           , boosting_erorun(subset(sub_runoff, Conservation_Type %in% 
+                                                      c("CC", "CC-NT", "CC-NT-SR", "CC-RT")), "Runoff", "CC"))
+
+boots_outputs <- bind_rows(boots_outputs
+                           , boosting_erorun(subset(sub_runoff, Conservation_Type %in% 
+                                                      c("NT", "NT-CC", "NT-CC-SR", "NT-IN", "NT-SR")), "Runoff", "NT"))
+
+boots_outputs <- bind_rows(boots_outputs
+                           , boosting_erorun(subset(sub_runoff, Conservation_Type %in% 
+                                                      c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD", "PF-RD", "RD", "RD-SR")),
+                                             "Runoff", "RT"))
+
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_runoff, Conservation_Type == "SR"), "Runoff", "SR"))
+# soil texture
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_runoff, TextureGroup == "Coarse"), "Runoff", "Coarse"))
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_runoff, TextureGroup == "Medium"), "Runoff", "Medium"))
+boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_runoff, TextureGroup == "Fine"), "Runoff", "Fine"))
+# boots_outputs <- bind_rows(boots_outputs, boosting_erorun(subset(sub_runoff, TextureGroup == "NotAvailable"), "Runoff", "NA"))
+
+print(boots_outputs)
+```
+
+
+
+```{r}
+# plot boots outputs
+#************************************************************ test plot
+# tiff("outputs/Figure 3. All boots results.tiff", width = 8, height = 6, pointsize = 1/300, units = 'in', res = 300)
+
+par( mar=c(2, 0.2, 0.2, 0.2)
+     , mai=c(0.15, 0.1, 0.1, 0.1)  # by inches, inner margin
+     , omi = c(0.5, 0.65, 0.1, 0.1)  # by inches, outer margin 
+     , mgp = c(0, 0.3, 0) # set distance of axis
+     , tcl = 0.4
+     # , cex.axis = 1.0
+     , mfrow=c(1,2))
+
+# Erosion
+sum_data <- subset(boots_outputs, Term == "Erosion")
+# Erosion by boots
+x_min <- -105
+x_max <- max(sum_data$High, na.rm = T) + 1
+x_max <- 55
+
+sum_data$ID <- c(nrow(sum_data):1)
+sum_data$col <- c("black","blue","blue","blue","blue","blue","blue","blue","blue")
+sum_data$pch <- c(16,15,15,15,15,15,15,15,15)
+
+plot(sum_data$ID ~ sum_data$Mean, lwd=2
+     # ,xlim=c(0,21),ylim=c(1,16)
+     , las=1
+     , xaxt='n', yaxt='n'
+     , xlim = c(x_min, x_max)
+     , ylim = c(0.5, nrow(sum_data) +0.5)
+     , xlab = '', ylab='', main=''
+     , col = sum_data$col
+     , pch = sum_data$pch
+     # , cex = 0.75
+     # , cex = ifelse (sum_data$TopGroup == "All data"|sum_data$TopGroup == "SurfaceSubsurface", 1.5, 1.5) 
+     # , xaxs="i"
+)
+
+arrows(sum_data$Low, sum_data$ID, sum_data$High, sum_data$ID
+       ,code=3,length=0.05,angle=90, sum_data$col, lwd=2)
+
+abline(v=0, col="red", lty=2, lwd=2)
+
+rect(-115, 3.5, 65, 8.5, col= rgb(0,0,0, alpha = 0.25)
+      , border = rgb(0,0,0, alpha = 0.01))
+ 
+
+axis (side = 1, at = seq(-100, 30, 25), labels = seq(-100, 30, 25)
+      , cex=1
+      , las = 1)
+
+axis (side = 2, at = sum_data$ID, labels = paste(sum_data$Treatment, sep = "")
+      , cex=1
+      , las = 2)
+
+text(c(25), sum_data$ID
+     , paste(sum_data$obs,"/",sum_data$n_study, sep = ""), cex=0.85, adj=0)
+
+mtext(side = 1, text = paste("Erosion (% changes)", sep=" "), line = 1.75, cex=1.05, outer = F, adj = 0.7)
+
+# text(-22, 5.25, "(-29, 36, 152)", cex=1.05, adj=0, col = "blue")
+
+# text(-9.5, 27, "(a)", cex=1.25, adj=0)
+
+
+
+# Runoff ************************************************************************************************
+sum_data <- subset(boots_outputs, Term == "Runoff")
+# Erosion by boots
+# x_min <- min(sum_data$Low, na.rm = T) - 1
+
+sum_data$ID <- c(nrow(sum_data):1)
+sum_data$col <- c("black","blue","blue","blue","blue","blue","blue","blue","blue")
+sum_data$pch <- c(16,15,15,15,15,15,15,15,15)
+
+plot(sum_data$ID ~ sum_data$Mean, lwd=2
+     # ,xlim=c(0,21),ylim=c(1,16)
+     , las=1
+     , xaxt='n', yaxt='n'
+     , xlim = c(x_min, x_max)
+     , ylim = c(0.5, nrow(sum_data) +0.5)
+     , xlab = '', ylab='', main=''
+     , col = sum_data$col
+     , pch = sum_data$pch
+     # , cex = 0.75
+     # , cex = ifelse (sum_data$TopGroup == "All data"|sum_data$TopGroup == "SurfaceSubsurface", 1.5, 1.5) 
+     # , xaxs="i"
+)
+
+arrows(sum_data$Low, sum_data$ID, sum_data$High, sum_data$ID
+       ,code=3,length=0.05,angle=90, sum_data$col, lwd=2)
+
+abline(v=0, col="red", lty=2, lwd=2)
+
+rect(-115, 3.5, 65, 8.5, col= rgb(0,0,0, alpha = 0.25)
+      , border = rgb(0,0,0, alpha = 0.25))
+
+axis (side = 1, at = seq(-100, 30, 25), labels = seq(-100, 30, 25)
+      , cex=1
+      , las = 1)
+
+text(c(25), sum_data$ID
+     , paste(sum_data$obs,"/",sum_data$n_study, sep = ""), cex=0.85, adj=0)
+
+mtext(side = 1, text = paste("Runoff (% changes)", sep=" "), line = 1.75, cex=1.05, outer = F, adj = 0.7)
+
+# text(-9.5, 27, "(a)", cex=1.25, adj=0)
+
+# dev.off()
+
+```
+
+
+```{r Figure 3}
+# plot figure 3 using ggplot
+boots_outputs %>% 
+  mutate(
+    group = case_when(
+      Treatment == "All" ~ "All",
+      Treatment %in% c('Coarse', "Medium", "Fine") ~ "Texture",
+      TRUE ~ "Conservation"),
+    y = rep(c(1,2.5,3.5,4.5,5.5,6.5,8,9,10),2) ) %>% 
+  ggplot(aes(Mean, y)) +
+  geom_point(pch = rep(c(12, 16,16,16,16,16, 10,10,10),2),
+             size = 2.5) +
+  geom_point(aes(Low, y), pch = "|", size = 2.5) +
+  geom_point(aes(High, y), pch = "|", size = 2.5) +
+  geom_segment(aes(x = Low, y = y, xend = High, yend = y), colour = "black", size = 1.0) +
+  geom_vline(xintercept = 0, linetype="dashed", 
+             color = "red", size=1) +
+  facet_grid(cols = vars(Term),
+             # rows = vars(group),
+             scales = "free") +
+  labs(x = expression(Response~to~conservation~management~'(%'~changes~")")) +
+  theme(axis.title.y = element_blank()) +
+  scale_x_continuous(breaks = seq(-100,50,20)) +
+  scale_y_continuous(breaks = c(1,2.5,3.5,4.5,5.5,6.5,8,9,10),
+                     labels = c("All", "AF", "CC", "NT", "RT", "RR", "Coarse", "Medium", "Fine")
+                       # boots_outputs$Treatment[1:9]
+                       ) +
+  geom_text(x=rep(5,18),
+            y=rep(c(1,2.5,3.5,4.5,5.5,6.5,8,9,10),2),
+            label=paste0(boots_outputs$obs,"/",boots_outputs$n_study),
+            size = 3.5,
+            hjust = 0) +
+  xlim(-100, 25)
+
+# ggsave("outputs/Figure 3.jpg", width = 6, height = 4, dpi = 300, units = c("in"))
+```
+
+
+```{r }
+# prepare data for Figure 4
+sum_results <- sum_indicator()
+
+sum_results %>% filter(indicator != "Erosion_C" & indicator != "Runoff_C") %>% mutate(Percentage = case_when(resp == "Erosion" ~ n_total/459 *100
+                                                                                      , TRUE ~ n_total / 432 * 100)) -> sum_results
+sum_results %>% mutate(Percentage = round(Percentage, 2)) -> sum_results
+```
+
+
+```{r Figure 4}
+sum_results %>% ggplot (aes(x = indicator, y = Percentage)) + geom_bar(stat="identity", width=0.3) +
+  facet_wrap(vars(resp), nrow = 2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y=expression("Percentage (%)"), x = "Soil health indicator") +
+  scale_x_discrete(limits = c("Yield", "BiomassCash", "BD", "OC", "N", "P", "K",  "Aggre", "Porosity", "Penetration", "Infiltration", "Ksat"  ,"Leaching"
+                              , "ST", "SWC",  "AWHC", "SoilFauna", "MBC", "MBN"),
+                   labels = c("Yield", "Biomass", "BD", "SOC", "N", "P", "K",  "Aggregate", "Porosity", "Penetration", "Infiltration", "Ksat"  ,"Leaching"
+                              , "ST", "SWC",  "AWHC", "Soil-fauna", "MBC", "MBN") )
+
+
+# unique(sum_results$indicator)
+
+# ggsave("outputs/Figure SX.jpg", width = 6, height = 6, dpi = 300, units = c("in"))
+
+```
+
+
+```{r}
+# Analyze the relationship between Erosion and other soil properties
+sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), Yield_rr = log(Yield_T/Yield_C)) %>% na.omit() %>% 
+  ggplot(aes(erosion_rr, Yield_rr)) + geom_point() + geom_smooth(method = "lm")
+
+sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), OC_rr = log(OC_T/OC_C)) %>% na.omit() %>% 
+  ggplot(aes(erosion_rr, OC_rr)) + geom_point() + geom_smooth(method = "lm")
+
+sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), N_rr = log(N_T/N_C)) %>% na.omit() %>% 
+  ggplot(aes(erosion_rr, N_rr)) + geom_point() + geom_smooth(method = "lm")
+
+sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), P_rr = log(P_T/P_C)) %>% na.omit() %>% 
+  ggplot(aes(erosion_rr, P_rr)) + geom_point() + geom_smooth(method = "lm")
+
+sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), K_rr = log(K_T/K_C)) %>% na.omit() %>% 
+  ggplot(aes(erosion_rr, K_rr)) + geom_point() + geom_smooth(method = "lm")
+
+sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), CEC_rr = log(CEC_T/CEC_C)) %>% na.omit() %>% 
+  ggplot(aes(erosion_rr, CEC_rr)) + geom_point() + geom_smooth(method = "lm")
+
+
+```
+
+```{r}
+# SLR test the relationship between erosion and other soil health indicators
+erosion_results <- SLR_erosion()
+# write.csv(erosion_results, 'outputs/erosion_results.csv')
+runoff_results <- SLR_runoff()
+# write.csv(runoff_results, 'outputs/runoff_results.csv')
+leaching_results <- SLR_leaching()
+```
+
+
+```{r}
+# test sample size of bootstrap
+n_sample = 2
+rt_ero_s2 <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                     c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD","PF-RD", "RD", "RD-SR" )))
+
+n_sample = 6
+rt_ero_s6 <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                     c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD","PF-RD", "RD", "RD-SR" )))
+
+n_sample = 10
+rt_ero_s10 <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                     c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD","PF-RD", "RD", "RD-SR" )))
+
+n_sample = 14
+rt_ero_s14 <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                     c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD","PF-RD", "RD", "RD-SR" )))
+
+
+plot_grid(rt_ero_s2, rt_ero_s6, rt_ero_s10, rt_ero_s14, 
+          labels = c("(n=2)", "(n=6)", "(n=10)", "(n=14)"), 
+          vjust = c(3), hjust = c(-11.95,-11.95,-9.35, -9.35),
+          ncol = 1, label_size = 10)
+
+# ggsave("outputs/Figure S0.png", width = 6, height = 6, dpi = 300, units = c("in"))
+
+```
+
+
+* boots test for erosion
+```{r, fig.width=6, fig.height=8}
+set.seed(1234567)
+# n_sample = 10
+
+# all data of erosion
+all_ero <- raw_boots_compare(sub_erosion)
+
+# unique(sub_erosion$Conservation_Type)
+af_ero <- raw_boots_compare(subset(sub_erosion, Conservation_Type == "AF"))
+cc_ero <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("CC", "CC-NT", "CC-NT-SR", "CC-RT")))
+nt_ero <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("NT", "NT-CC", "NT-CC-SR", "NT-IN", "NT-SR")))
+rd_ero <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("PF-RD", "RD", "RD-SR")))
+rt_ero <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD","PF-RD", "RD", "RD-SR" )))
+sr_ero <- raw_boots_compare(subset(sub_erosion, Conservation_Type %in% 
+                                                      c("SR" )))
+
+
+# sort(unique(as.character(sub_erosion$Texture)))
+ero1 <- raw_boots_compare(subset(sub_erosion, TextureGroup == "Coarse"))
+ero2 <- raw_boots_compare(subset(sub_erosion, TextureGroup == "Medium"))
+ero3 <- raw_boots_compare(subset(sub_erosion, TextureGroup == "Fine"))
+ero4 <- raw_boots_compare(subset(sub_erosion, TextureGroup == "NotAvailable"))
+
+# theme_set(theme_bw() + theme_cowplot(font_size=12) + theme(text = element_text(colour = "black")))
+plot_grid(af_ero, cc_ero, nt_ero, rt_ero, sr_ero
+          , labels = c("AF", "CC", "NT", "RT", "RR")
+          # , align = c("hv")
+          # , axis="l"
+          , vjust = c(3), hjust = c(-4.1,-4,-4.05,-3.65, -3.2), ncol = 1, label_size = 10) 
+
+# ggsave("outputs/Figure S1.png", width = 6, height = 6, dpi = 300, units = c("in"))
+
+
+plot_grid(ero1, ero2, ero3
+          , labels = c("Coarse", "Medium", "Fine")
+          # , align = c("hv")
+          # , axis="l"
+          , vjust = c(3), hjust = c(-4.7, -4, -7.5), ncol = 1, label_size = 10) 
+
+# ggsave("outputs/Figure S2.png", width = 6, height = 4, dpi = 300, units = c("in"))
+
+```
+
+
+
+* boots test for runoff
+
+```{r, fig.width=6, fig.height=8}
+set.seed(1234567)
+# all data of erosion
+all_ero_2 <- raw_boots_compare(sub_runoff)
+
+# sort(unique(sub_runoff$Conservation_Type))
+af_ero_2 <- raw_boots_compare(subset(sub_runoff, Conservation_Type == "AF"))
+cc_ero_2 <- raw_boots_compare(subset(sub_runoff, Conservation_Type %in% c("CC", "CC-NT", "CC-NT-SR", "CC-RT")))
+nt_ero_2 <- raw_boots_compare(subset(sub_runoff, Conservation_Type %in% c("NT", "NT-CC", "NT-CC-SR", "NT-IN", "NT-SR")))
+rd_ero_2 <- raw_boots_compare(subset(sub_runoff, Conservation_Type %in% c("PF-RD", "RD", "RD-SR")))
+rt_ero_2 <- raw_boots_compare(subset(sub_runoff, Conservation_Type %in% c("RT", "RT-PF-RD", "RT-RD", "RT-SD", "RT-SR", "RT-SR-RD", "PF-RD", "RD", "RD-SR")))
+sr_ero_2 <- raw_boots_compare(subset(sub_runoff, Conservation_Type %in% c("RT")))
+
+# sort(unique(as.character(sub_runoff$Texture)))
+ero1_2 <- raw_boots_compare(subset(sub_runoff, TextureGroup == "Coarse"))
+ero2_2 <- raw_boots_compare(subset(sub_runoff, TextureGroup == "Medium"))
+ero3_2 <- raw_boots_compare(subset(sub_runoff, TextureGroup == "Fine"))
+ero4_2 <- raw_boots_compare(subset(sub_runoff, TextureGroup == "NotAvailable"))
+
+# theme_set(theme_bw() + theme_cowplot(font_size=12) + theme(text = element_text(colour = "black")))
+ 
+# theme_set(theme_bw() + theme_cowplot(font_size=12) + theme(text = element_text(colour = "black")))
+plot_grid(af_ero_2, cc_ero_2, nt_ero_2, rt_ero_2, sr_ero_2
+          , labels = c("AF", "CC", "NT", "RT", "RR")
+          # , align = c("hv")
+          # , axis="l"
+          , vjust = c(3), hjust = c(-4.1,-4,-4.05,-3.65, -3.75), ncol = 1, label_size = 10) 
+
+# ggsave("outputs/Figure S3.png", width = 6, height = 6, dpi = 300, units = c("in"))
+
+
+plot_grid(ero1_2, ero2_2, ero3_2
+          , labels = c("Coarse", "Medium", "Fine")
+          # , align = c("hv")
+          # , axis="l"
+          , vjust = c(3), hjust = c(-1.5,-1.3,-2.5), ncol = 1, label_size = 10) 
+
+# ggsave("outputs/Figure 4.png", width = 6, height = 4, dpi = 300, units = c("in"))
+
+
+```
+
+
+```{r}
+sub_erosion %>% select(StudyID) %>% unique
+unique(sub_erosion$StudyID)
+```
+
+
+### groudwater depth test
+```{r}
+
+indcator_col <- which(colnames(SoilHealthDB) == 'water_depth')
+respcol <- c(seq(which(colnames(SoilHealthDB) == 'BiomassCash_C'),which(colnames(SoilHealthDB) == 'OC_C'),5)
+             ,seq(which(colnames(SoilHealthDB) == 'N_C'),which(colnames(SoilHealthDB) == 'MBN_C'),5)) # all response columns
+
+resp_results <- data.frame()
+  
+i = 25
+    
+subdata <- SoilHealthDB[, c(which(colnames(SoilHealthDB) == 'StudyID'|colnames(SoilHealthDB) == 'ExperimentID')
+                            , indcator_col, respcol[i], respcol[i]+1 )]
+
+indicator <- colnames(subdata)[4] 
+    # indicator <- str_sub(indicator, 1, str_length(indicator)-2)
+    
+colnames(subdata) <- c("StudyID", "ExperimentID", "Water_depth", "Y_C", "Y_T")
+
+subdata <- subdata %>% filter(!is.na(Water_depth) & !is.na(Y_C) & Water_depth < 255)
+
+n_total <- nrow(subdata)
+n_study <- length(unique(subdata$StudyID))
+    
+    
+      
+# plot
+plot (subdata$Y_C ~ subdata$Water_depth
+      , xlab = ""
+      , ylab = ""
+      , pch = c(19) 
+      , main = ""
+      , col = c("gray")
+      , data = subdata
+      , las = 1)
+mtext(side = 1, text = "Water_depth(m)"
+      , line = 2.5, cex=1.25, outer = F)
+mtext(side = 2, text = paste0(indicator), line = 2.5, cex=1.25, outer = F)
+
+
+```
+
+```{r}
+SoilHealthDB %>% select(Erosion_T, StudyID, Conservation_Type) %>% 
+  na.omit() %>% 
+  select(StudyID, Conservation_Type) %>% 
+  filter(Conservation_Type == "SR") %>% 
+  unique()
+```
+
+
+```{r}
+SoilHealthDB %>% select(Erosion_C, StudyID, TextureGroup) %>% 
+  na.omit() %>% 
+  select(Erosion_C, TextureGroup) %>% 
+  group_by(TextureGroup) %>% 
+  summarize(mean(Erosion_C))  
+  
+```
+
+
+
+```{r}
+write.csv(SoilHealthDB %>% 
+            select(X19.Leaching_Comments) %>% 
+            filter(X19.Leaching_Comments != "") %>% 
+            unique(),
+          '../Leaching/LeachingMapping.csv', row.names = F)
+
+  
+```
+
+```{r}
+SoilHealthDB %>% 
+  select(Erosion_C, Erosion_T, Runoff_C, Runoff_T) %>% 
+  na.omit() %>% 
+  mutate(Erosion_RR = log(Erosion_T/Erosion_C), Runoff_RR = log(Runoff_T/Runoff_C)) %>% 
+  filter(!is.infinite(Erosion_RR) & !is.infinite(Runoff_RR) & !is.na(Erosion_RR) & !is.na(Runoff_RR)) ->
+  sub_shdb
+
+cor(x = sub_shdb$Erosion_RR, y = sub_shdb$Runoff_RR, method = "pearson") %>% summary()
+```
+
+
