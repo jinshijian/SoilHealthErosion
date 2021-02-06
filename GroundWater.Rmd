@@ -1,0 +1,124 @@
+---
+title: "Ground_water"
+author: "Jinshi"
+date: "2/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+```{r}
+ground_water <- raster('data/Global_Soil_Regolith_Sediment_1304/data/upland_hill-slope_regolith_thickness.tif')
+image(ground_water)
+```
+
+
+
+```{r}
+ground_water
+150/18000 # latitude resolution
+360/43200 # longitude resolution
+
+get_watDep <- function(sdata1, sdata2){
+  # i = 376
+  # sdata1 = sub_erosion
+  # sdata2 = ground_water
+  for (i in 1:nrow(sdata1)){
+    # target poit's latitude and longitude
+    target_lat <- sdata1$Latitude[i]
+    target_lon <- sdata1$Longitude[i]
+    # get row and column information in the raster data
+    ilat <- round((90 - target_lat)/150*18000, 0)
+    ilon <- round((target_lon + 180)/360*43200, 0) 
+    # get ground water depth information
+    target_depth <- sdata2[ilat, ilon]
+    
+    sdata1[i, "water_depth"] <- target_depth
+    
+    print(paste0("----------", i))
+  }
+  
+  # outputs <- sdata1[1,] %>% select(Latitude, Longitude, water_depth)
+  return (sdata1)
+}
+
+# round((90 - 90)/150*18000, 0)
+# round((180 + 180)/360*43200, 0)
+
+```
+
+
+```{r}
+# SoilHealthDB <- get_watDep(SoilHealthDB, ground_water)
+# write.csv(SoilHealthDB, "outputs/SoilHealthDB_water_depth.csv", row.names = FALSE)
+```
+
+
+
+```{r}
+# sub_leach <- get_watDep(sub_leach, ground_water)
+
+# sub_leach <- SoilHealthDB %>% dplyr::select(Latitude, Longitude, Leaching_C, Leaching_T) %>% 
+#   mutate(Leaching_RR = log( Leaching_T / Leaching_C)) %>% 
+#   na.omit()
+# 
+# sub_leach %>% filter(water_depth < 255) %>% 
+#   ggplot(aes(water_depth, Leaching_RR)) +
+#   geom_point() +
+#   geom_smooth(method = lm)
+# 
+# ggsave("outputs/Figure S1. Leaching_groud_water.png", width = 8, height = 4.5, dpi = 300, units = "in" )
+  
+```
+
+
+### groudwater depth test
+```{r}
+
+indcator_col <- which(colnames(SoilHealthDB) == 'water_depth')
+respcol <- c(seq(which(colnames(SoilHealthDB) == 'BiomassCash_C'),which(colnames(SoilHealthDB) == 'OC_C'),5)
+             ,seq(which(colnames(SoilHealthDB) == 'N_C'),which(colnames(SoilHealthDB) == 'MBN_C'),5)) # all response columns
+
+resp_results <- data.frame()
+  
+i = 25
+    
+subdata <- SoilHealthDB[, c(which(colnames(SoilHealthDB) == 'StudyID'|colnames(SoilHealthDB) == 'ExperimentID')
+                            , indcator_col, respcol[i], respcol[i]+1 )]
+
+indicator <- colnames(subdata)[4] 
+    # indicator <- str_sub(indicator, 1, str_length(indicator)-2)
+    
+colnames(subdata) <- c("StudyID", "ExperimentID", "Water_depth", "Y_C", "Y_T")
+
+subdata <- subdata %>% filter(!is.na(Water_depth) & !is.na(Y_C) & Water_depth < 255)
+
+n_total <- nrow(subdata)
+n_study <- length(unique(subdata$StudyID))
+    
+    
+      
+# plot
+plot (subdata$Y_C ~ subdata$Water_depth
+      , xlab = ""
+      , ylab = ""
+      , pch = c(19) 
+      , main = ""
+      , col = c("gray")
+      , data = subdata
+      , las = 1)
+mtext(side = 1, text = "Water_depth(m)"
+      , line = 2.5, cex=1.25, outer = F)
+mtext(side = 2, text = paste0(indicator), line = 2.5, cex=1.25, outer = F)
+
+
+```

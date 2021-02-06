@@ -41,12 +41,14 @@ library("metafor")
 # install.packages("e1071")
 library(e1071)
 library(stringr)
-# install.packages('ggmap')
+# install.packages('rgdal')
 library(rgdal)
 library(raster)
 library(ggmap)
 source('functions.R')
 # getwd()
+# install.packages('Hmisc')
+library('Hmisc')
 ```
 
 
@@ -68,7 +70,7 @@ if(!file.exists(OUTPUT_DIR)) dir.create(OUTPUT_DIR)
 ```{r}
 # load data
 # SoilHealthDB_V2.csv can be found at: https://github.com/jinshijian/SoilHealthDB (commit number:e89beca)
-SoilHealthDB <- read.csv('../SoilHealthDB/data/SoilHealthDB_V2.csv', header = T)
+SoilHealthDB <- read.csv('data/SoilHealthDB_V2.csv', header = T)
 # SoilHealthDB <- read.csv('outputs/SoilHealthDB_water_depth.csv', header = T)
 
 # Add soiltexture_group information
@@ -79,11 +81,11 @@ SoilHealthDB %>% mutate(TextureGroup = case_when(Texture=="TU"|Texture=="TH"|Tex
                         Texture=="EHI"|Texture=="TA"|Texture=="Clay"|Texture=="Silty clay"|Texture=="Silty clay loam"|Texture=="Clay loam"|Texture=="Sandy clay" ~ "Fine",
                         TRUE~"NotAvailable")) -> SoilHealthDB
 # test results
-SoilHealthDB %>% select (Texture, TextureGroup) %>% filter(TextureGroup == "NotAvailable") %>% distinct(Texture)
+SoilHealthDB %>% dplyr::select (Texture, TextureGroup) %>% filter(TextureGroup == "NotAvailable") %>%
+  distinct(Texture)
 unique(SoilHealthDB[which((SoilHealthDB$Texture=="")),]$TextureGroup)
 
 # SoilHealthDB <- SoilHealthDB[SoilHealthDB$Conservation_Type == "AFS",] 
-erosion_meta <- read.csv('outputs/erosion_meta.csv')
 # Subset
 sub_erosion <- filter(SoilHealthDB, !is.na(Erosion_C) & Erosion_C > 0 ) 
 # if Erosion_T = 0 then set as the min of Erosion_T/Erosion_C
@@ -96,7 +98,7 @@ sub_erosion$yi <- log(sub_erosion$Erosion_T) - log(sub_erosion$Erosion_C)
 # class(SoilHealthDB$Runoff_T)
 # if Runoff_T = 0 then set as the min of Runoff_T/Runoff_C
 sub_runoff <- filter(SoilHealthDB, !is.na(Runoff_C) & Runoff_C > 0 ) 
-sub_runoff %>% select(Runoff_C) %>% order
+sub_runoff %>% dplyr::select(Runoff_C) %>% order
 sub_runoff[sub_runoff$Runoff_T == 0,]$Runoff_T <- 
   sub_runoff %>% filter (Runoff_T > 0) %>% transmute (ratio = Runoff_T / Runoff_C) %>% min * sub_runoff[sub_runoff$Runoff_T == 0,]$Runoff_C
 sub_runoff$yi <- log(sub_runoff$Runoff_T) - log(sub_runoff$Runoff_C)
@@ -105,76 +107,10 @@ sub_runoff$yi <- log(sub_runoff$Runoff_T) - log(sub_runoff$Runoff_C)
 
 
 ```{r}
-ground_water <- raster('data/Global_Soil_Regolith_Sediment_1304/data/upland_hill-slope_regolith_thickness.tif')
-image(ground_water)
-```
-
-
-
-
-```{r}
-ground_water
-150/18000 # latitude resolution
-360/43200 # longitude resolution
-
-get_watDep <- function(sdata1, sdata2){
-  # i = 376
-  # sdata1 = sub_erosion
-  # sdata2 = ground_water
-  for (i in 1:nrow(sdata1)){
-    # target poit's latitude and longitude
-    target_lat <- sdata1$Latitude[i]
-    target_lon <- sdata1$Longitude[i]
-    # get row and column information in the raster data
-    ilat <- round((90 - target_lat)/150*18000, 0)
-    ilon <- round((target_lon + 180)/360*43200, 0) 
-    # get ground water depth information
-    target_depth <- sdata2[ilat, ilon]
-    
-    sdata1[i, "water_depth"] <- target_depth
-    
-    print(paste0("----------", i))
-  }
-  
-  # outputs <- sdata1[1,] %>% select(Latitude, Longitude, water_depth)
-  return (sdata1)
-}
-
-# round((90 - 90)/150*18000, 0)
-# round((180 + 180)/360*43200, 0)
-
-```
-
-
-
-```{r}
-# SoilHealthDB <- get_watDep(SoilHealthDB, ground_water)
-# write.csv(SoilHealthDB, "outputs/SoilHealthDB_water_depth.csv", row.names = FALSE)
-```
-
-```{r}
-# sub_leach <- get_watDep(sub_leach, ground_water)
-
-# sub_leach <- SoilHealthDB %>% dplyr::select(Latitude, Longitude, Leaching_C, Leaching_T) %>% 
-#   mutate(Leaching_RR = log( Leaching_T / Leaching_C)) %>% 
-#   na.omit()
-# 
-# sub_leach %>% filter(water_depth < 255) %>% 
-#   ggplot(aes(water_depth, Leaching_RR)) +
-#   geom_point() +
-#   geom_smooth(method = lm)
-# 
-# ggsave("outputs/Figure S1. Leaching_groud_water.png", width = 8, height = 4.5, dpi = 300, units = "in" )
-  
-```
-
-
-
-```{r}
 # plot_sites (SoilHealthDB)
 # aggregate for sub_erosion
 siteInfor_erosion <- sub_erosion %>% 
-  select(YearPublication, Latitude, Longitude) %>% 
+  dplyr::select(YearPublication, Latitude, Longitude) %>% 
   group_by(Latitude, Longitude) %>% 
   summarise(Obs = n())
 siteInfor_erosion <- siteInfor_erosion %>% 
@@ -188,7 +124,7 @@ siteInfor_erosion %>%
   siteInfor_erosion
 
 # aggregate for runoff
-siteInfor_runoff <- sub_runoff %>% select(YearPublication, Latitude, Longitude) %>% 
+siteInfor_runoff <- sub_runoff %>% dplyr::select(YearPublication, Latitude, Longitude) %>% 
   group_by(Latitude, Longitude) %>% summarise(Obs = n())
 siteInfor_runoff <- siteInfor_runoff %>% na.omit()
 siteInfor_runoff$var_size <- mean(siteInfor_runoff$Obs)*0.225 + (siteInfor_runoff$Obs)*0.075
@@ -495,7 +431,7 @@ sum_results %>% mutate(Percentage = round(Percentage, 2)) -> sum_results
 ```
 
 
-```{r Figure 4}
+```{r Figure 4, fig.height=6, fig.width=6}
 sum_results %>% ggplot (aes(x = indicator, y = Percentage)) + geom_bar(stat="identity", width=0.3) +
   facet_wrap(vars(resp), nrow = 2) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
@@ -505,11 +441,8 @@ sum_results %>% ggplot (aes(x = indicator, y = Percentage)) + geom_bar(stat="ide
                    labels = c("Yield", "Biomass", "BD", "SOC", "N", "P", "K",  "Aggregate", "Porosity", "Penetration", "Infiltration", "Ksat"  ,"Leaching"
                               , "ST", "SWC",  "AWHC", "Soil-fauna", "MBC", "MBN") )
 
-
 # unique(sum_results$indicator)
-
 # ggsave("outputs/Figure SX.jpg", width = 6, height = 6, dpi = 300, units = c("in"))
-
 ```
 
 
@@ -540,7 +473,7 @@ sub_erosion %>% transmute(erosion_rr = log(Erosion_T/Erosion_C), CEC_rr = log(CE
 # SLR test the relationship between erosion and other soil health indicators
 erosion_results <- SLR_erosion()
 # write.csv(erosion_results, 'outputs/erosion_results.csv')
-runoff_results <- SLR_runoff()
+runoff_results <- SLR_Runoff()
 # write.csv(runoff_results, 'outputs/runoff_results.csv')
 leaching_results <- SLR_leaching()
 ```
@@ -671,66 +604,25 @@ plot_grid(ero1_2, ero2_2, ero3_2
 
 
 ```{r}
-sub_erosion %>% select(StudyID) %>% unique
+sub_erosion %>% dplyr::select(StudyID) %>% unique
 unique(sub_erosion$StudyID)
 ```
 
 
-### groudwater depth test
-```{r}
-
-indcator_col <- which(colnames(SoilHealthDB) == 'water_depth')
-respcol <- c(seq(which(colnames(SoilHealthDB) == 'BiomassCash_C'),which(colnames(SoilHealthDB) == 'OC_C'),5)
-             ,seq(which(colnames(SoilHealthDB) == 'N_C'),which(colnames(SoilHealthDB) == 'MBN_C'),5)) # all response columns
-
-resp_results <- data.frame()
-  
-i = 25
-    
-subdata <- SoilHealthDB[, c(which(colnames(SoilHealthDB) == 'StudyID'|colnames(SoilHealthDB) == 'ExperimentID')
-                            , indcator_col, respcol[i], respcol[i]+1 )]
-
-indicator <- colnames(subdata)[4] 
-    # indicator <- str_sub(indicator, 1, str_length(indicator)-2)
-    
-colnames(subdata) <- c("StudyID", "ExperimentID", "Water_depth", "Y_C", "Y_T")
-
-subdata <- subdata %>% filter(!is.na(Water_depth) & !is.na(Y_C) & Water_depth < 255)
-
-n_total <- nrow(subdata)
-n_study <- length(unique(subdata$StudyID))
-    
-    
-      
-# plot
-plot (subdata$Y_C ~ subdata$Water_depth
-      , xlab = ""
-      , ylab = ""
-      , pch = c(19) 
-      , main = ""
-      , col = c("gray")
-      , data = subdata
-      , las = 1)
-mtext(side = 1, text = "Water_depth(m)"
-      , line = 2.5, cex=1.25, outer = F)
-mtext(side = 2, text = paste0(indicator), line = 2.5, cex=1.25, outer = F)
-
-
-```
 
 ```{r}
-SoilHealthDB %>% select(Erosion_T, StudyID, Conservation_Type) %>% 
+SoilHealthDB %>% dplyr::select(Erosion_T, StudyID, Conservation_Type) %>% 
   na.omit() %>% 
-  select(StudyID, Conservation_Type) %>% 
+  dplyr::select(StudyID, Conservation_Type) %>% 
   filter(Conservation_Type == "SR") %>% 
   unique()
 ```
 
 
 ```{r}
-SoilHealthDB %>% select(Erosion_C, StudyID, TextureGroup) %>% 
+SoilHealthDB %>% dplyr::select(Erosion_C, StudyID, TextureGroup) %>% 
   na.omit() %>% 
-  select(Erosion_C, TextureGroup) %>% 
+  dplyr::select(Erosion_C, TextureGroup) %>% 
   group_by(TextureGroup) %>% 
   summarize(mean(Erosion_C))  
   
@@ -739,24 +631,26 @@ SoilHealthDB %>% select(Erosion_C, StudyID, TextureGroup) %>%
 
 
 ```{r}
-write.csv(SoilHealthDB %>% 
-            select(X19.Leaching_Comments) %>% 
-            filter(X19.Leaching_Comments != "") %>% 
-            unique(),
-          '../Leaching/LeachingMapping.csv', row.names = F)
-
+# write.csv(SoilHealthDB %>% 
+#             dplyr::select(X19.Leaching_Comments) %>% 
+#             filter(X19.Leaching_Comments != "") %>% 
+#             unique(),
+#           '../Leaching/LeachingMapping.csv', row.names = F)
   
 ```
 
 ```{r}
 SoilHealthDB %>% 
-  select(Erosion_C, Erosion_T, Runoff_C, Runoff_T) %>% 
+  dplyr::select(Erosion_C, Erosion_T, Runoff_C, Runoff_T) %>% 
   na.omit() %>% 
   mutate(Erosion_RR = log(Erosion_T/Erosion_C), Runoff_RR = log(Runoff_T/Runoff_C)) %>% 
   filter(!is.infinite(Erosion_RR) & !is.infinite(Runoff_RR) & !is.na(Erosion_RR) & !is.na(Runoff_RR)) ->
   sub_shdb
 
-cor(x = sub_shdb$Erosion_RR, y = sub_shdb$Runoff_RR, method = "pearson") %>% summary()
+cor(x = sub_shdb$Erosion_RR, y = sub_shdb$Runoff_RR, method = "pearson") 
+rcorr(as.matrix(tibble(x = sub_shdb$Erosion_RR, y = sub_shdb$Runoff_RR))) -> rcorr_result
+rcorr_result$r[1,2]
+rcorr_result$P[1,2]
 ```
 
 

@@ -340,7 +340,13 @@ SLR_erosion <- function () {
       p_erosion_b <- summary(SLR)$coefficients[2,4]%>% round(6)
       erosion_R2 <- summary(SLR)$r.squared %>% round(6)
       
-      model_prems <- data.frame(indicator, n_total, n_study, erosion_a, erosion_b, p_erosion_b, erosion_R2)
+      # Pearson correlation
+      pearspn_cor <- cor(x = subdata$x, y = subdata$y, method = "pearson")
+      spearman_cor <- cor(x = subdata$x, y = subdata$y, method = "spearman")
+      rcorr_result <- rcorr(as.matrix(tibble(x = subdata$x, y = subdata$y)))
+      
+      model_prems <- data.frame(indicator, n_total, n_study, erosion_a, erosion_b, p_erosion_b, erosion_R2,
+                                pearspn_cor, spearman_cor, rcorr_result$r[1,2], rcorr_result$P[1,2] %>% round(2) )
       erosion_results <- rbind(erosion_results, model_prems)
       
       # add regression line
@@ -440,7 +446,14 @@ SLR_Runoff <- function () {
       p_runoff_b <- summary(SLR)$coefficients[2,4]%>% round(6)
       runoff_R2 <- summary(SLR)$r.squared %>% round(6)
       
-      model_prems <- data.frame(indicator, n_total, n_study, runoff_a, runoff_b, p_runoff_b, runoff_R2)
+      # Pearson correlation
+      pearspn_cor <- cor(x = subdata$x, y = subdata$y, method = "pearson")
+      spearman_cor <- cor(x = subdata$x, y = subdata$y, method = "spearman")
+      rcorr_result <- rcorr(as.matrix(tibble(x = subdata$x, y = subdata$y)))
+     
+      
+      model_prems <- data.frame(indicator, n_total, n_study, runoff_a, runoff_b, p_runoff_b, runoff_R2,
+                                pearspn_cor, spearman_cor, rcorr_result$r[1,2], rcorr_result$P[1,2])
       runoff_results <- rbind(runoff_results, model_prems)
       
       # add regression line

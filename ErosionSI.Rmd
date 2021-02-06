@@ -80,7 +80,7 @@ SLR_erosion <- function () {
       # erosion_results <- rbind(erosion_results, model_prems)
       
       # add regression line
-      if(p_erosion_b<0.05) {curve(erosion_a + erosion_b * x, min(subdata$x), max(subdata$x), col = "black", lwd = 2, add = T)} else{next}
+      # if(p_erosion_b<0.05) {curve(erosion_a + erosion_b * x, min(subdata$x), max(subdata$x), col = "black", lwd = 2, add = T)} else{next}
     }
   }
 }
@@ -189,7 +189,7 @@ SLR_runoff <- function () {
       # runoff_results <- rbind(runoff_results, model_prems)
       
       # add regression line
-      if(p_runoff_b<0.05) {curve(runoff_a + runoff_b * x, min(subdata$x), max(subdata$x), col = "black", lwd = 2, add = T)} else {next}
+      # if(p_runoff_b<0.05) {curve(runoff_a + runoff_b * x, min(subdata$x), max(subdata$x), col = "black", lwd = 2, add = T)} else {next}
     }
   }
 }

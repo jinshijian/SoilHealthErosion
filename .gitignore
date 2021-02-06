@@ -5,7 +5,6 @@ ErosionAnalysis.html
 ErosionAnalysis.docx
 
 # file or dir in this file will be ignored
-data/
 .Rproj.user/
 
 # ignore all files in any directory named Manuscript/SHDB_cash*SHDB/files
